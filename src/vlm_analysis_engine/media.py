@@ -2,14 +2,14 @@ import glob
 import hashlib
 import logging
 import os
+import shutil
 import subprocess
+import sys
 from typing import Tuple, Optional, Union
 
-import gallery_dl
 import yt_dlp
 from pathlib import Path
 
-from gallery_dl.job import DownloadJob
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -106,88 +106,53 @@ def _download_video_with_ytdlp(url: str, media_dir: str, save_name: str, sep_aud
         return None, str(e)
 
 
-def download_image_gallery_dl(url: str, media_dir: str, save_name: str) -> Tuple[Optional[str], Optional[str]]:
+def _resolve_tool_path(name: str) -> str:
+    """Locate a CLI tool, checking the active Python env's bin dir first."""
+    env_bin = os.path.join(os.path.dirname(sys.executable), name)
+    if os.path.isfile(env_bin):
+        return env_bin
+    found = shutil.which(name)
+    if found:
+        return found
+    raise FileNotFoundError(f"Cannot locate {name!r}")
+
+
+def _download_image_gallery_dl(url: str, media_dir: str, save_name: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Wrapper around the gallery-dl CLI.
+    Download an image/gallery via the gallery-dl CLI.
+    Resolves the binary from the current Python environment so it works
+    regardless of shell PATH configuration.
     """
-    os.makedirs(media_dir, exist_ok=True)
     output_dir = os.path.join(media_dir, save_name)
     os.makedirs(output_dir, exist_ok=True)
 
+    try:
+        gdl = _resolve_tool_path("gallery-dl")
+    except FileNotFoundError as e:
+        return None, str(e)
+
     cmd = [
-        "gallery-dl",
-        "-q",
+        gdl, "-q",
         "--dest", output_dir,
-        "--filename", f"{save_name}.jpg",
+        "--filename", save_name + ".{extension}",
         url,
     ]
 
     try:
         logger.debug("Running: %s", " ".join(cmd))
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
-            return None, f"gallery-dl failed: {result.stderr.strip()}"
+            stderr = result.stderr.strip()
+            return None, f"gallery-dl exit {result.returncode}: {stderr}" if stderr else f"gallery-dl exit {result.returncode}"
 
         files = glob.glob(os.path.join(output_dir, "**", f"{save_name}*"), recursive=True)
-        files = [f for f in files if os.path.isfile(f)]
-        if files:
-            return files[0], None
-        else:
-            return None, "gallery-dl completed but no files found."
+        files = [f for f in files if os.path.isfile(f) and os.path.getsize(f) > 0]
+        return (files[0], None) if files else (None, "gallery-dl completed but no files found.")
 
+    except subprocess.TimeoutExpired:
+        return None, "gallery-dl timed out after 120s"
     except Exception as e:
-        return None, f"Subprocess error: {e}"
-
-
-def _download_image_gallery_dl(url: str, media_dir: str, save_name: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Downloads an image/gallery using gallery-dl's DownloadJob class.
-    Returns (path_to_file, error_message).
-    """
-
-    output_dir = os.path.join(media_dir, save_name)
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Clear and configure gallery-dl
-    gallery_dl.config.clear()
-    gallery_dl.config.set(("output",), "base-directory", output_dir)
-    gallery_dl.config.set(("output",), "template", f"{save_name}.%(extension)s")
-    gallery_dl.config.set(("output",), "no-part", True)
-    gallery_dl.config.set(("downloader",), "enabled", True)
-    gallery_dl.config.set(("extractor",), "skip", False)
-
-    current_level = logging.getLogger().level
-    logging.getLogger().setLevel(logging.INFO)
-
-    final_path = None
-    error_message = None
-
-    try:
-        logger.debug("Starting DownloadJob for URL: %s", url)
-        job = DownloadJob(url)
-        exit_code = job.run()
-        logger.debug("Exit code: %s", exit_code)
-
-        if exit_code != 0:
-            error_message = f"DownloadJob failed with exit code {exit_code}."
-        else:
-            # Search for the downloaded file
-            search_pattern = os.path.join(output_dir, "**", f"{save_name}*")
-            found_files = glob.glob(search_pattern, recursive=True)
-            found_files = [f for f in found_files if os.path.isfile(f)]
-
-            if found_files:
-                final_path = found_files[0]
-            else:
-                error_message = "DownloadJob completed but did not create a file."
-
-    except Exception as e:
-        error_message = f"Gallery-dl Python API error: {e}"
-
-    finally:
-        logging.getLogger().setLevel(current_level)
-
-    return final_path, error_message
+        return None, f"gallery-dl error: {e}"
 
 
 def download_media(url: str, media_dir: str, save_name: str) -> Tuple[Optional[str], Optional[str]]:
@@ -214,7 +179,7 @@ def download_media(url: str, media_dir: str, save_name: str) -> Tuple[Optional[s
 
     # 2. Try Image/Gallery Download if video failed
     logger.info("Video download failed (%s). Trying image download with gallery-dl...", video_error)
-    image_path, image_error = download_image_gallery_dl(url, media_dir, save_name)
+    image_path, image_error = _download_image_gallery_dl(url, media_dir, save_name)
 
     if image_path:
         logger.info("Image download successful.")

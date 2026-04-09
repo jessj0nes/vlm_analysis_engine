@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import mimetypes
 import os
 import re
 import time
@@ -283,7 +284,20 @@ def call_gemini_for_media(
         contextual_prompt = f"{prompt}\n\nOriginal URL: {original_url}\n"
 
     try:
-        media_file = client.files.upload(file=media_path)
+        mime, _ = mimetypes.guess_type(media_path)
+        if not mime:
+            ext = os.path.splitext(media_path)[1].lower()
+            mime = {
+                ".mp4": "video/mp4", ".webm": "video/webm",
+                ".mov": "video/quicktime", ".avi": "video/x-msvideo",
+                ".mkv": "video/x-matroska",
+                ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".png": "image/png", ".gif": "image/gif",
+                ".webp": "image/webp", ".bmp": "image/bmp",
+                ".svg": "image/svg+xml",
+            }.get(ext, "application/octet-stream")
+        upload_cfg = {"mime_type": mime} if mime else {}
+        media_file = client.files.upload(file=media_path, config=upload_cfg)
         wait = rc.file_active_max_wait_sec
         while media_file.state == genai_types.FileState.PROCESSING:
             if wait <= 0:
