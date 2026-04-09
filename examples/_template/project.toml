@@ -57,6 +57,7 @@ append_chunk_size = 100
 [processing]
 rows_per_platform = 0
 stop_on_primary_daily_quota = true
+shuffle_batch = false
 required_input_columns = ["platform"]
 sort_columns = ["platform"]
 sort_ascending = [true]

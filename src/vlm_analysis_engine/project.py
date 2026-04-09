@@ -77,6 +77,7 @@ class ProjectSpec:
     # ── Processing ───────────────────────────────────────────────────────
     rows_per_platform: int = 0
     stop_on_primary_daily_quota: bool = True
+    shuffle_batch: bool = False
     required_input_columns: list[str] = field(default_factory=lambda: ["platform"])
     sort_columns: list[str] = field(default_factory=lambda: ["platform"])
     sort_ascending: list[bool] = field(default_factory=lambda: [True])
@@ -249,6 +250,7 @@ def load_project(toml_path: str | Path) -> ProjectSpec:
         stop_on_primary_daily_quota=proc_cfg.get(
             "stop_on_primary_daily_quota", True
         ),
+        shuffle_batch=proc_cfg.get("shuffle_batch", False),
         required_input_columns=proc_cfg.get(
             "required_input_columns", ["platform"]
         ),

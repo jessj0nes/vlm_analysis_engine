@@ -435,6 +435,9 @@ def prepare_pipeline(spec: ProjectSpec) -> Optional[PipelineContext]:
     else:
         batch = pending.reset_index(drop=True)
 
+    if spec.shuffle_batch:
+        batch = batch.sample(frac=1).reset_index(drop=True)
+
     if batch.empty:
         print("No rows to process (all candidates already recorded).")
         return None
@@ -451,7 +454,8 @@ def prepare_pipeline(spec: ProjectSpec) -> Optional[PipelineContext]:
     storage_desc = (
         "Google Sheet" if spec.spreadsheet_id else str(spec.local_results_csv)
     )
-    print(f"Queued {len(batch)} row(s) ({limit_desc}); storage={storage_desc}.")
+    shuffle_note = " [shuffled]" if spec.shuffle_batch else ""
+    print(f"Queued {len(batch)} row(s) ({limit_desc}){shuffle_note}; storage={storage_desc}.")
 
     # ── Column order ─────────────────────────────────────────────────────
     vlm_cols = vlm_result_columns(spec)
