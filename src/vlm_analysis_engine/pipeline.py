@@ -37,7 +37,7 @@ from .gemini import (
     call_gemini_for_media,
     call_gemini_for_url,
     is_daily_quota_resource_error,
-    safe_url_str,
+    safe_str,
     send_url_to_api,
 )
 from .io import (
@@ -194,8 +194,8 @@ def _default_build_annotation_prompt(
         }
     post_bundle = {"vlm_content_key": post_id, "prior_analysis": prior_dict}
     meta = {k: row.get(k) for k in row.index if not str(k).startswith("vlm_")}
-    post_u = normalize_download_url(safe_url_str(row.get("post_url")))
-    media_u = normalize_download_url(safe_url_str(row.get("media_url")))
+    post_u = normalize_download_url(safe_str(row.get("post_url")))
+    media_u = normalize_download_url(safe_str(row.get("media_url")))
     canonical_url = (post_u or media_u or "(none)").strip()
 
     return template.format(
@@ -237,8 +237,8 @@ def _run_annotation_pass(
             spec.annotation_prompt_template, post_id, analysis, row_series
         )
 
-    post_u = normalize_download_url(safe_url_str(row_series.get("post_url")))
-    media_u = normalize_download_url(safe_url_str(row_series.get("media_url")))
+    post_u = normalize_download_url(safe_str(row_series.get("post_url")))
+    media_u = normalize_download_url(safe_str(row_series.get("media_url")))
 
     if local_media_path:
         resp, ann_err, ann_model = call_gemini_for_media(

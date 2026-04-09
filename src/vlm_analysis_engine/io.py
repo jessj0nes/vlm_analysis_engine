@@ -16,7 +16,7 @@ import pandas as pd
 
 from .media import col_index_to_letter, normalize_download_url
 from .core import DEFAULT_SHEETS_APPEND_CHUNK_SIZE
-from .gemini import safe_url_str
+from .gemini import safe_str
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Deduplication key
@@ -25,7 +25,7 @@ from .gemini import safe_url_str
 
 def compute_content_key(row: pd.Series, key_columns: list[str]) -> str:
     """SHA-256 hash over the values of *key_columns* for cross-run dedup."""
-    parts = [normalize_download_url(safe_url_str(row.get(col))) for col in key_columns]
+    parts = [normalize_download_url(safe_str(row.get(col))) for col in key_columns]
     raw = "\x1f".join(parts).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 
