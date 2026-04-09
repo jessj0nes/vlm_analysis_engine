@@ -35,6 +35,8 @@ input_csv = "data/input.csv"
 local_results_csv = "data/results.csv"
 mirror_csv = ""
 media_downloads = "media_downloads"
+# Netscape-format cookies file for authenticated downloads (Instagram, Facebook, etc.):
+# cookies_file = "cookies.txt"
 
 [models]
 primary = "gemini-3.1-pro-preview"

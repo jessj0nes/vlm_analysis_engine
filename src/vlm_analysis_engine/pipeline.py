@@ -552,6 +552,7 @@ def process_urls_sync(ctx: PipelineContext) -> pd.DataFrame:
             spec.primary_model,
             spec.fallback_model,
             spec.media_downloads_dir,
+            cookies_file=spec.cookies_file,
             rc=ctx.retry_config,
         )
 
@@ -616,6 +617,7 @@ async def process_urls_async(ctx: PipelineContext) -> pd.DataFrame:
                 spec.primary_model,
                 spec.fallback_model,
                 spec.media_downloads_dir,
+                cookies_file=spec.cookies_file,
                 rc=ctx.retry_config,
             )
         )

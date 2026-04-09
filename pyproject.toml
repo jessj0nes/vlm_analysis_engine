@@ -15,6 +15,7 @@ dependencies = [
     "google-auth-oauthlib>=1.0",
     "yt-dlp",
     "gallery-dl",
+    "ffmpeg",
     "tomli>=2.0; python_version < '3.11'",
 ]
 

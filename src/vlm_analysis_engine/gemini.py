@@ -376,6 +376,7 @@ def send_url_to_api(
     fallback_model: str,
     media_downloads_dir: str,
     *,
+    cookies_file: str = "",
     rc: RetryConfig = _DEFAULT_RETRY,
 ) -> Tuple[Any, str, Optional[str], Optional[str], Optional[str], Optional[str]]:
     """Download media from the row's URLs and run the Gemini VLM call.
@@ -392,7 +393,9 @@ def send_url_to_api(
         if not url:
             continue
         save_name = url_to_media_save_name(url, role)
-        media_path, dl_err = download_media(url, media_downloads_dir, save_name)
+        media_path, dl_err = download_media(
+            url, media_downloads_dir, save_name, cookies_file=cookies_file,
+        )
         if media_path:
             analysis, error, m_used = call_gemini_for_media(
                 client, media_path, prompt, schema_cls, model, fallback_model,

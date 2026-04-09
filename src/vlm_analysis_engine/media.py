@@ -72,8 +72,10 @@ def _resolve_env_executable(name: str) -> Optional[str]:
     return shutil.which(name)
 
 
-def _download_video_with_ytdlp(url: str, media_dir: str, save_name: str, sep_audio: bool = False) -> Tuple[
-    Optional[str], Optional[str]]:
+def _download_video_with_ytdlp(
+    url: str, media_dir: str, save_name: str,
+    sep_audio: bool = False, cookies_file: str = "",
+) -> Tuple[Optional[str], Optional[str]]:
     """
     Internal helper to attempt downloading media as a video using yt-dlp.
     Returns (path_to_file, error_message).
@@ -93,6 +95,8 @@ def _download_video_with_ytdlp(url: str, media_dir: str, save_name: str, sep_aud
     }
     if ffmpeg_path:
         base_opts['ffmpeg_location'] = os.path.dirname(ffmpeg_path)
+    if cookies_file and os.path.isfile(cookies_file):
+        base_opts['cookiefile'] = cookies_file
 
     if sep_audio:
         ydl_opts = {
@@ -156,7 +160,9 @@ def _download_video_with_ytdlp(url: str, media_dir: str, save_name: str, sep_aud
     return None, "yt-dlp completed without creating expected media file (likely non-video content)."
 
 
-def _download_image_gallery_dl(url: str, media_dir: str, save_name: str) -> Tuple[Optional[str], Optional[str]]:
+def _download_image_gallery_dl(
+    url: str, media_dir: str, save_name: str, cookies_file: str = "",
+) -> Tuple[Optional[str], Optional[str]]:
     """
     Download an image/gallery via the gallery-dl CLI.
     Resolves the binary from the current Python environment so it works
@@ -166,28 +172,18 @@ def _download_image_gallery_dl(url: str, media_dir: str, save_name: str) -> Tupl
     os.makedirs(output_dir, exist_ok=True)
 
     gallery_dl_path = _resolve_env_executable("gallery-dl")
-    if gallery_dl_path:
-        cmd = [
-            gallery_dl_path,
-            "-q",
-            "--dest",
-            output_dir,
-            "--filename",
-            save_name + ".{extension}",
-            url,
-        ]
-    else:
-        cmd = [
-            sys.executable,
-            "-m",
-            "gallery_dl",
-            "-q",
-            "--dest",
-            output_dir,
-            "--filename",
-            save_name + ".{extension}",
-            url,
-        ]
+    base = [gallery_dl_path] if gallery_dl_path else [sys.executable, "-m", "gallery_dl"]
+    cmd = [
+        *base,
+        "-q",
+        "--dest",
+        output_dir,
+        "--filename",
+        save_name + ".{extension}",
+    ]
+    if cookies_file and os.path.isfile(cookies_file):
+        cmd += ["--cookies", cookies_file]
+    cmd.append(url)
 
     try:
         logger.debug("Running: %s", " ".join(cmd))
@@ -206,7 +202,9 @@ def _download_image_gallery_dl(url: str, media_dir: str, save_name: str) -> Tupl
         return None, f"gallery-dl error: {e}"
 
 
-def download_media(url: str, media_dir: str, save_name: str) -> Tuple[Optional[str], Optional[str]]:
+def download_media(
+    url: str, media_dir: str, save_name: str, cookies_file: str = "",
+) -> Tuple[Optional[str], Optional[str]]:
     """
     Attempts to download media, first as a video (yt-dlp), then as an image/gallery (gallery-dl).
     Returns (path_to_downloaded_file, error_message)
@@ -222,7 +220,9 @@ def download_media(url: str, media_dir: str, save_name: str) -> Tuple[Optional[s
     logger.info("Processing ID %s: Trying video download...", save_name)
 
     # 1. Try Video Download
-    video_path, video_error = _download_video_with_ytdlp(url, media_dir, save_name)
+    video_path, video_error = _download_video_with_ytdlp(
+        url, media_dir, save_name, cookies_file=cookies_file,
+    )
 
     if video_path:
         logger.info("Video download successful.")
@@ -230,7 +230,9 @@ def download_media(url: str, media_dir: str, save_name: str) -> Tuple[Optional[s
 
     # 2. Try Image/Gallery Download if video failed
     logger.info("Video download failed (%s). Trying image download with gallery-dl...", video_error)
-    image_path, image_error = _download_image_gallery_dl(url, media_dir, save_name)
+    image_path, image_error = _download_image_gallery_dl(
+        url, media_dir, save_name, cookies_file=cookies_file,
+    )
 
     if image_path:
         logger.info("Image download successful.")
