@@ -1,3 +1,4 @@
+import errno
 import glob
 import hashlib
 import logging
@@ -81,6 +82,7 @@ def _download_video_with_ytdlp(url: str, media_dir: str, save_name: str, sep_aud
                 'merge_output_format': 'mp4',
                 'quiet': True,  # Suppress progress output for cleaner logs
                 'no_warnings': True,
+                'noprogress': True,
                 'noplaylist': True,  # Important for non-playlist URLs
             }
         else:
@@ -92,6 +94,7 @@ def _download_video_with_ytdlp(url: str, media_dir: str, save_name: str, sep_aud
                 'merge_output_format': None,
                 'quiet': True,
                 'no_warnings': True,
+                'noprogress': True,
             }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -103,6 +106,30 @@ def _download_video_with_ytdlp(url: str, media_dir: str, save_name: str, sep_aud
             return None, "yt-dlp completed without creating expected MP4 file (likely non-video content)."
 
     except Exception as e:
+        if os.path.isfile(final_path) and os.path.getsize(final_path) > 0:
+            return final_path, None
+        epipe = isinstance(e, BrokenPipeError) or (
+            isinstance(e, OSError) and e.errno == errno.EPIPE
+        )
+        if epipe and not sep_audio:
+            alt_tmpl = os.path.join(media_dir, save_name, f"{save_name}.%(ext)s")
+            alt_opts = {
+                'outtmpl': alt_tmpl,
+                'format': 'best',
+                'quiet': True,
+                'no_warnings': True,
+                'noprogress': True,
+                'noplaylist': True,
+            }
+            try:
+                with yt_dlp.YoutubeDL(alt_opts) as ydl:
+                    ydl.download([url])
+                cached = find_existing_downloaded_media(media_dir, save_name)
+                if cached:
+                    return cached, None
+            except Exception as e2:
+                return None, str(e2)
+            return None, str(e)
         return None, str(e)
 
 
@@ -117,6 +144,14 @@ def _resolve_tool_path(name: str) -> str:
     raise FileNotFoundError(f"Cannot locate {name!r}")
 
 
+def _gallery_dl_argv0() -> list[str]:
+    """CLI entry as argv prefix: resolved binary, or ``python -m gallery_dl``."""
+    try:
+        return [_resolve_tool_path("gallery-dl")]
+    except FileNotFoundError:
+        return [sys.executable, "-m", "gallery_dl"]
+
+
 def _download_image_gallery_dl(url: str, media_dir: str, save_name: str) -> Tuple[Optional[str], Optional[str]]:
     """
     Download an image/gallery via the gallery-dl CLI.
@@ -126,13 +161,9 @@ def _download_image_gallery_dl(url: str, media_dir: str, save_name: str) -> Tupl
     output_dir = os.path.join(media_dir, save_name)
     os.makedirs(output_dir, exist_ok=True)
 
-    try:
-        gdl = _resolve_tool_path("gallery-dl")
-    except FileNotFoundError as e:
-        return None, str(e)
-
     cmd = [
-        gdl, "-q",
+        *_gallery_dl_argv0(),
+        "-q",
         "--dest", output_dir,
         "--filename", save_name + ".{extension}",
         url,
