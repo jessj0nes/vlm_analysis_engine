@@ -7,7 +7,7 @@ Usage::
     vlm-run path/to/project.toml --async       # asynchronous
 
     # or via module invocation:
-    python -m vlm_engine path/to/project.toml --async
+    python -m vlm_analysis_engine path/to/project.toml --async
 """
 
 from __future__ import annotations

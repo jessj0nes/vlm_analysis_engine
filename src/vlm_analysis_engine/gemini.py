@@ -345,8 +345,8 @@ def call_gemini_for_url(
 # ═════════════════════════════════════════════════════════════════════════════
 
 
-def safe_url_str(val: Any) -> str:
-    """Coerce a cell value to a clean URL string (handles NaN, None, 'nan')."""
+def safe_str(val: Any) -> str:
+    """Coerce a cell value to a clean string (handles NaN, None, 'nan')."""
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return ""
     s = str(val).strip()
@@ -370,8 +370,8 @@ def send_url_to_api(
 
     Returns ``(analysis, url_used, error, model_used, download_err, local_media_path)``.
     """
-    post_u = normalize_download_url(safe_url_str(row.get("post_url")))
-    media_u = normalize_download_url(safe_url_str(row.get("media_url")))
+    post_u = normalize_download_url(safe_str(row.get("post_url")))
+    media_u = normalize_download_url(safe_str(row.get("media_url")))
     os.makedirs(media_downloads_dir, exist_ok=True)
 
     for url, role in [(post_u, "post"), (media_u, "media")]:

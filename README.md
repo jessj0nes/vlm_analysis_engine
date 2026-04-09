@@ -1,17 +1,17 @@
-# vlm-engine
+# vlm-analysis-engine
 
 Schema-agnostic VLM (Vision-Language Model) analysis pipeline engine powered by Google Gemini.
 
 ## Overview
 
-`vlm-engine` is a generic pipeline for running structured media analysis at scale using the Google Gemini API. You define a **project** — a `@dataclass` schema for what you want Gemini to return, a prompt, and a TOML config — and the engine handles everything else: media download, API calls with retry/fallback, deduplication, and persistence to Google Sheets or local CSV.
+`vlm-analysis-engine` is a generic pipeline for running structured media analysis at scale using the Google Gemini API. You define a **project** — a `@dataclass` schema for what you want Gemini to return, a prompt, and a TOML config — and the engine handles everything else: media download, API calls with retry/fallback, deduplication, and persistence to Google Sheets or local CSV.
 
 ## Quick start
 
 ### 1. Install
 
 ```bash
-pip install git+https://github.com/USERNAME/vlm-engine.git
+pip install git+https://github.com/jessj0nes/vlm_analysis_engine.git
 ```
 
 ### 2. Create a project
@@ -50,7 +50,7 @@ The engine reads the TOML, dynamically imports the schema, loads the prompt, and
 ## Python API
 
 ```python
-from vlm_engine import load_project, prepare_pipeline, process_urls_sync, print_run_summary
+from vlm_analysis_engine import load_project, prepare_pipeline, process_urls_sync, print_run_summary
 
 spec = load_project("my_project/project.toml")
 ctx = prepare_pipeline(spec)
@@ -62,7 +62,7 @@ if ctx is not None:
 ## Development
 
 ```bash
-git clone https://github.com/USERNAME/vlm-engine.git
-cd vlm-engine
+git clone https://github.com/jessj0nes/vlm_analysis_engine.git
+cd vlm_analysis_engine
 pip install -e ".[dev]"
 ```

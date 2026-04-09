@@ -1,5 +1,5 @@
 """
-vlm-engine — Schema-agnostic VLM analysis pipeline engine powered by Google Gemini.
+vlm-analysis-engine — Schema-agnostic VLM analysis pipeline engine powered by Google Gemini.
 """
 
 from .project import ProjectSpec, load_project
