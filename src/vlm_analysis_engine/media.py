@@ -1,9 +1,7 @@
-import errno
 import glob
 import hashlib
 import logging
 import os
-import shutil
 import subprocess
 import sys
 from typing import Tuple, Optional, Union
@@ -67,89 +65,76 @@ def _download_video_with_ytdlp(url: str, media_dir: str, save_name: str, sep_aud
     Internal helper to attempt downloading media as a video using yt-dlp.
     Returns (path_to_file, error_message).
     """
-    try:
-        # Create a unique directory for the temporary download and merge
-        save_path_template = f"{media_dir}/{save_name}/{save_name}.mp4"
-        os.makedirs(os.path.dirname(save_path_template), exist_ok=True)
+    save_path_template = f"{media_dir}/{save_name}/{save_name}.mp4"
+    os.makedirs(os.path.dirname(save_path_template), exist_ok=True)
+    final_path = os.path.join(media_dir, save_name, f"{save_name}.mp4")
 
-        final_path = os.path.join(media_dir, save_name, f"{save_name}.mp4")
+    def _valid_mp4() -> bool:
+        return os.path.isfile(final_path) and os.path.getsize(final_path) > 0
 
-        # Configure yt-dlp options
-        if not sep_audio:
-            ydl_opts = {
-                'outtmpl': save_path_template,  # output file name template
-                'format': 'bestvideo+bestaudio/best',  # best available quality
-                'merge_output_format': 'mp4',
-                'quiet': True,  # Suppress progress output for cleaner logs
-                'no_warnings': True,
-                'noprogress': True,
-                'noplaylist': True,  # Important for non-playlist URLs
-            }
-        else:
-            ydl_opts = {
-                'outtmpl': save_path_template,
-                'format': 'bestvideo+bestaudio/best',
-                'keepvideo': True,
-                'audio_multistreams': True,
-                'merge_output_format': None,
-                'quiet': True,
-                'no_warnings': True,
-                'noprogress': True,
-            }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-
+    if sep_audio:
+        ydl_opts = {
+            'outtmpl': save_path_template,
+            'format': 'bestvideo+bestaudio/best',
+            'keepvideo': True,
+            'audio_multistreams': True,
+            'merge_output_format': None,
+            'quiet': True,
+            'no_warnings': True,
+            'noprogress': True,
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+        except Exception as e:
+            if _valid_mp4():
+                return final_path, None
+            return None, str(e)
         if os.path.exists(final_path):
             return final_path, None
-        else:
-            return None, "yt-dlp completed without creating expected MP4 file (likely non-video content)."
+        return None, "yt-dlp completed without creating expected MP4 file (likely non-video content)."
 
-    except Exception as e:
-        if os.path.isfile(final_path) and os.path.getsize(final_path) > 0:
+    merged_opts = {
+        'outtmpl': save_path_template,
+        'format': 'bestvideo+bestaudio/best',
+        'merge_output_format': 'mp4',
+        'quiet': True,
+        'no_warnings': True,
+        'noprogress': True,
+        'noplaylist': True,
+    }
+    best_opts = {
+        'outtmpl': os.path.join(media_dir, save_name, f"{save_name}.%(ext)s"),
+        'format': 'best',
+        'quiet': True,
+        'no_warnings': True,
+        'noprogress': True,
+        'noplaylist': True,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(merged_opts) as ydl:
+            ydl.download([url])
+    except Exception:
+        if _valid_mp4():
             return final_path, None
-        epipe = isinstance(e, BrokenPipeError) or (
-            isinstance(e, OSError) and e.errno == errno.EPIPE
-        )
-        if epipe and not sep_audio:
-            alt_tmpl = os.path.join(media_dir, save_name, f"{save_name}.%(ext)s")
-            alt_opts = {
-                'outtmpl': alt_tmpl,
-                'format': 'best',
-                'quiet': True,
-                'no_warnings': True,
-                'noprogress': True,
-                'noplaylist': True,
-            }
-            try:
-                with yt_dlp.YoutubeDL(alt_opts) as ydl:
-                    ydl.download([url])
-                cached = find_existing_downloaded_media(media_dir, save_name)
-                if cached:
-                    return cached, None
-            except Exception as e2:
-                return None, str(e2)
-            return None, str(e)
+    else:
+        if _valid_mp4():
+            return final_path, None
+
+    try:
+        with yt_dlp.YoutubeDL(best_opts) as ydl:
+            ydl.download([url])
+    except Exception as e:
+        cached = find_existing_downloaded_media(media_dir, save_name)
+        if cached:
+            return cached, None
         return None, str(e)
 
-
-def _resolve_tool_path(name: str) -> str:
-    """Locate a CLI tool, checking the active Python env's bin dir first."""
-    env_bin = os.path.join(os.path.dirname(sys.executable), name)
-    if os.path.isfile(env_bin):
-        return env_bin
-    found = shutil.which(name)
-    if found:
-        return found
-    raise FileNotFoundError(f"Cannot locate {name!r}")
-
-
-def _gallery_dl_argv0() -> list[str]:
-    """CLI entry as argv prefix: resolved binary, or ``python -m gallery_dl``."""
-    try:
-        return [_resolve_tool_path("gallery-dl")]
-    except FileNotFoundError:
-        return [sys.executable, "-m", "gallery_dl"]
+    cached = find_existing_downloaded_media(media_dir, save_name)
+    if cached:
+        return cached, None
+    return None, "yt-dlp completed without creating expected media file (likely non-video content)."
 
 
 def _download_image_gallery_dl(url: str, media_dir: str, save_name: str) -> Tuple[Optional[str], Optional[str]]:
@@ -161,11 +146,17 @@ def _download_image_gallery_dl(url: str, media_dir: str, save_name: str) -> Tupl
     output_dir = os.path.join(media_dir, save_name)
     os.makedirs(output_dir, exist_ok=True)
 
+    # Always use the interpreter that runs this process so we never depend on a
+    # ``gallery-dl`` console script (PATH, Windows ``.exe``, stale installs).
     cmd = [
-        *_gallery_dl_argv0(),
+        sys.executable,
+        "-m",
+        "gallery_dl",
         "-q",
-        "--dest", output_dir,
-        "--filename", save_name + ".{extension}",
+        "--dest",
+        output_dir,
+        "--filename",
+        save_name + ".{extension}",
         url,
     ]
 
