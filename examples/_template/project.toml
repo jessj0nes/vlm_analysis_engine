@@ -1,0 +1,69 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# VLM Project Template
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Copy this directory, fill in the blanks below, define your analysis schema in
+# schemas.py, write your prompt in prompts/first_pass.txt, then run:
+#
+#   python run.py path/to/your_project/project.toml
+#   python run.py path/to/your_project/project.toml --async
+#
+# All paths are resolved relative to THIS FILE's directory.
+# ──────────────────────────────────────────────────────────────────────────────
+
+[project]
+name = "My VLM Analysis"
+
+[schemas]
+module = "schemas.py"
+analysis_class = "MyAnalysis"
+# Uncomment to enable a second-pass annotation schema:
+# annotation_class = "MyAnnotationResponse"
+
+[prompts]
+first_pass = "prompts/first_pass.txt"
+# Uncomment to enable annotation (requires annotation_class above):
+# annotation_template = "prompts/annotation_template.txt"
+
+# Uncomment to use custom Python hooks (annotation criteria, materialisation):
+# [hooks]
+# module = "hooks.py"
+
+[paths]
+keys = "../../credentials/keys.json"
+input_csv = "data/input.csv"
+local_results_csv = "data/results.csv"
+mirror_csv = ""
+media_downloads = "media_downloads"
+
+[models]
+primary = "gemini-3.1-pro-preview"
+fallback = "gemini-3-flash-preview"
+
+[retry]
+max_attempts = 3
+base_delay_sec = 2
+rate_limit_margin_sec = 5
+file_active_max_wait_sec = 60
+file_poll_interval_sec = 1
+
+[sheets]
+# Leave spreadsheet_id empty to use local CSV storage.
+spreadsheet_id = ""
+worksheet = "Results"
+annotations_worksheet = "Annotations"
+append_chunk_size = 100
+
+[processing]
+rows_per_platform = 0
+stop_on_primary_daily_quota = true
+required_input_columns = ["platform"]
+sort_columns = ["platform"]
+sort_ascending = [true]
+
+[dedup]
+key_columns = ["post_url", "media_url", "platform"]
+
+# Uncomment to gate the annotation pass on first-pass field values:
+# [annotation.field_rules]
+# my_field = "EXPECTED_VALUE"
