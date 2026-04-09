@@ -2,6 +2,7 @@ import glob
 import hashlib
 import logging
 import os
+import shutil
 import subprocess
 import sys
 from typing import Tuple, Optional, Union
@@ -59,6 +60,18 @@ def find_existing_downloaded_media(media_dir: str, save_name: str) -> Optional[s
     return files[0] if files else None
 
 
+def _resolve_env_executable(name: str) -> Optional[str]:
+    """
+    Locate a CLI tool installed in the same Python environment (conda / venv)
+    as the running interpreter, falling back to a standard PATH lookup.
+    """
+    bin_dir = os.path.dirname(sys.executable)
+    candidate = os.path.join(bin_dir, name)
+    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
+    return shutil.which(name)
+
+
 def _download_video_with_ytdlp(url: str, media_dir: str, save_name: str, sep_audio: bool = False) -> Tuple[
     Optional[str], Optional[str]]:
     """
@@ -72,16 +85,23 @@ def _download_video_with_ytdlp(url: str, media_dir: str, save_name: str, sep_aud
     def _valid_mp4() -> bool:
         return os.path.isfile(final_path) and os.path.getsize(final_path) > 0
 
+    ffmpeg_path = _resolve_env_executable("ffmpeg")
+    base_opts: dict = {
+        'quiet': True,
+        'no_warnings': True,
+        'noprogress': True,
+    }
+    if ffmpeg_path:
+        base_opts['ffmpeg_location'] = os.path.dirname(ffmpeg_path)
+
     if sep_audio:
         ydl_opts = {
+            **base_opts,
             'outtmpl': save_path_template,
             'format': 'bestvideo+bestaudio/best',
             'keepvideo': True,
             'audio_multistreams': True,
             'merge_output_format': None,
-            'quiet': True,
-            'no_warnings': True,
-            'noprogress': True,
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -94,33 +114,32 @@ def _download_video_with_ytdlp(url: str, media_dir: str, save_name: str, sep_aud
             return final_path, None
         return None, "yt-dlp completed without creating expected MP4 file (likely non-video content)."
 
-    merged_opts = {
-        'outtmpl': save_path_template,
-        'format': 'bestvideo+bestaudio/best',
-        'merge_output_format': 'mp4',
-        'quiet': True,
-        'no_warnings': True,
-        'noprogress': True,
-        'noplaylist': True,
-    }
+    # Only attempt bestvideo+bestaudio merge when ffmpeg is available;
+    # without it yt-dlp raises BrokenPipeError trying to pipe to ffmpeg.
+    if ffmpeg_path:
+        merged_opts = {
+            **base_opts,
+            'outtmpl': save_path_template,
+            'format': 'bestvideo+bestaudio/best',
+            'merge_output_format': 'mp4',
+            'noplaylist': True,
+        }
+        try:
+            with yt_dlp.YoutubeDL(merged_opts) as ydl:
+                ydl.download([url])
+        except Exception:
+            if _valid_mp4():
+                return final_path, None
+        else:
+            if _valid_mp4():
+                return final_path, None
+
     best_opts = {
+        **base_opts,
         'outtmpl': os.path.join(media_dir, save_name, f"{save_name}.%(ext)s"),
         'format': 'best',
-        'quiet': True,
-        'no_warnings': True,
-        'noprogress': True,
         'noplaylist': True,
     }
-
-    try:
-        with yt_dlp.YoutubeDL(merged_opts) as ydl:
-            ydl.download([url])
-    except Exception:
-        if _valid_mp4():
-            return final_path, None
-    else:
-        if _valid_mp4():
-            return final_path, None
 
     try:
         with yt_dlp.YoutubeDL(best_opts) as ydl:
@@ -146,19 +165,29 @@ def _download_image_gallery_dl(url: str, media_dir: str, save_name: str) -> Tupl
     output_dir = os.path.join(media_dir, save_name)
     os.makedirs(output_dir, exist_ok=True)
 
-    # Always use the interpreter that runs this process so we never depend on a
-    # ``gallery-dl`` console script (PATH, Windows ``.exe``, stale installs).
-    cmd = [
-        sys.executable,
-        "-m",
-        "gallery_dl",
-        "-q",
-        "--dest",
-        output_dir,
-        "--filename",
-        save_name + ".{extension}",
-        url,
-    ]
+    gallery_dl_path = _resolve_env_executable("gallery-dl")
+    if gallery_dl_path:
+        cmd = [
+            gallery_dl_path,
+            "-q",
+            "--dest",
+            output_dir,
+            "--filename",
+            save_name + ".{extension}",
+            url,
+        ]
+    else:
+        cmd = [
+            sys.executable,
+            "-m",
+            "gallery_dl",
+            "-q",
+            "--dest",
+            output_dir,
+            "--filename",
+            save_name + ".{extension}",
+            url,
+        ]
 
     try:
         logger.debug("Running: %s", " ".join(cmd))
