@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 from typing import Tuple, Optional, Union
+from urllib.parse import urlparse
 
 import yt_dlp
 from pathlib import Path
@@ -17,6 +18,9 @@ from googleapiclient.discovery import build, Resource
 
 MODULE_ROOT = Path.cwd().parent.resolve()
 logger = logging.getLogger(__name__)
+
+COOKIES_FB_FILENAME = "cookies_fb.txt"
+COOKIES_IG_FILENAME = "cookies_ig.txt"
 
 
 def normalize_download_url(url: str) -> str:
@@ -58,6 +62,47 @@ def find_existing_downloaded_media(media_dir: str, save_name: str) -> Optional[s
     matches = sorted(glob.glob(os.path.join(base, f"{save_name}*")))
     files = [f for f in matches if os.path.isfile(f) and os.path.getsize(f) > 0]
     return files[0] if files else None
+
+
+def _cookies_file_for_url(cookies_dir: str, url: str) -> str:
+    """
+    Pick ``cookies_fb.txt`` / ``cookies_ig.txt`` (under *cookies_dir*) from the URL host.
+    Returns an absolute path only when the matching file exists and is non-empty.
+    """
+    if not cookies_dir or not os.path.isdir(cookies_dir):
+        return ""
+    u = (url or "").strip()
+    if not u:
+        return ""
+    if "://" not in u:
+        u = "https://" + u
+    try:
+        host = (urlparse(u).hostname or "").lower()
+    except ValueError:
+        return ""
+    if not host:
+        return ""
+
+    if host == "instagram.com" or host.endswith(".instagram.com"):
+        name = COOKIES_IG_FILENAME
+    elif (
+        host == "facebook.com"
+        or host.endswith(".facebook.com")
+        or host == "fb.com"
+        or host.endswith(".fb.com")
+        or host == "fb.watch"
+        or host.endswith(".fb.watch")
+        or host == "fb.me"
+        or host.endswith(".fb.me")
+    ):
+        name = COOKIES_FB_FILENAME
+    else:
+        return ""
+
+    path = os.path.join(cookies_dir, name)
+    if os.path.isfile(path) and os.path.getsize(path) > 0:
+        return path
+    return ""
 
 
 def _resolve_env_executable(name: str) -> Optional[str]:
@@ -203,13 +248,15 @@ def _download_image_gallery_dl(
 
 
 def download_media(
-    url: str, media_dir: str, save_name: str, cookies_file: str = "",
+    url: str, media_dir: str, save_name: str, cookies_dir: str = "",
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Attempts to download media, first as a video (yt-dlp), then as an image/gallery (gallery-dl).
     Returns (path_to_downloaded_file, error_message)
 
     Callers should pass the same URL they used to build ``save_name`` (see ``normalize_download_url``).
+    When *cookies_dir* is set, Facebook / Instagram URLs use ``cookies_fb.txt`` /
+    ``cookies_ig.txt`` inside that directory when those files exist.
     """
     url = normalize_download_url(url.strip())
     cached = find_existing_downloaded_media(media_dir, save_name)
@@ -217,6 +264,7 @@ def download_media(
         logger.info("Reusing existing download for %s: %s", save_name, cached)
         return cached, None
 
+    cookies_file = _cookies_file_for_url(cookies_dir, url)
     logger.info("Processing ID %s: Trying video download...", save_name)
 
     # 1. Try Video Download

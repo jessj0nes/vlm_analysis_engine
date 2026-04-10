@@ -67,7 +67,7 @@ class ProjectSpec:
     local_results_csv: Path = field(default_factory=lambda: Path("data/results.csv"))
     mirror_csv: str = ""
     media_downloads_dir: str = "media_downloads"
-    cookies_file: str = ""
+    cookies_dir: str = ""
 
     # ── Google Sheets ────────────────────────────────────────────────────
     spreadsheet_id: str = ""
@@ -237,9 +237,9 @@ def load_project(toml_path: str | Path) -> ProjectSpec:
         media_downloads_dir=str(
             _resolve(paths_cfg.get("media_downloads", "media_downloads"))
         ),
-        cookies_file=(
-            str(_resolve(paths_cfg["cookies_file"]))
-            if paths_cfg.get("cookies_file")
+        cookies_dir=(
+            str(_resolve(paths_cfg["cookies_dir"]))
+            if paths_cfg.get("cookies_dir")
             else ""
         ),
         # Sheets
