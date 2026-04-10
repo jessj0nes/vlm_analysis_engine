@@ -22,6 +22,83 @@ logger = logging.getLogger(__name__)
 COOKIES_FB_FILENAME = "cookies_fb.txt"
 COOKIES_IG_FILENAME = "cookies_ig.txt"
 
+_GALLERY_DL_TIMEOUT_SEC = 120
+_GALLERY_DL_OUTPUT_CLIP = 6000
+
+
+def _clip_for_message(text: str, limit: int = _GALLERY_DL_OUTPUT_CLIP) -> str:
+    """Trim long tool output so error columns stay usable."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    if len(t) <= limit:
+        return t
+    return t[: limit - 3] + "..."
+
+
+def _download_context_suffix(url: str, cookies_file: str) -> str:
+    """URL + cookie file status for troubleshooting rate limits and auth."""
+    u = (url or "").strip()
+    if len(u) > 280:
+        u = u[:277] + "..."
+    parts = [f"url={u!r}"]
+    if cookies_file:
+        exists = os.path.isfile(cookies_file)
+        size = os.path.getsize(cookies_file) if exists else 0
+        parts.append(f"cookies={cookies_file!r} exists={exists} bytes={size}")
+    else:
+        parts.append("cookies=(none for this host — see project cookies_dir and cookies_fb.txt / cookies_ig.txt)")
+    return "; ".join(parts)
+
+
+def _ytdlp_format_error(exc: BaseException, url: str, cookies_file: str) -> str:
+    """Rich yt-dlp failure message: exception text, optional cause chain, context."""
+    main = str(exc).strip()
+    if not main:
+        main = f"{type(exc).__name__}: {exc!r}"
+    chunks = [main]
+    cause = getattr(exc, "__cause__", None)
+    depth = 0
+    while cause and depth < 4:
+        ctext = str(cause).strip() or f"{type(cause).__name__}"
+        chunks.append(f"caused by: {ctext}")
+        cause = getattr(cause, "__cause__", None)
+        depth += 1
+    return " | ".join(chunks) + " | " + _download_context_suffix(url, cookies_file)
+
+
+def _gallery_dl_format_failure(
+    *,
+    exit_code: Optional[int] = None,
+    timed_out_after_sec: Optional[float] = None,
+    stdout: str = "",
+    stderr: str = "",
+    url: str = "",
+    cookies_file: str = "",
+    other: str = "",
+) -> str:
+    """Combine gallery-dl exit/timeout, captured streams, and context."""
+    head_parts: list[str] = []
+    if timed_out_after_sec is not None:
+        head_parts.append(
+            f"gallery-dl timed out after {timed_out_after_sec:g}s (process was killed; output below may be partial)"
+        )
+    elif exit_code is not None:
+        head_parts.append(f"gallery-dl exit {exit_code}")
+    if other:
+        head_parts.append(other)
+    out_s = _clip_for_message(stdout)
+    err_s = _clip_for_message(stderr)
+    streams: list[str] = []
+    if err_s:
+        streams.append(f"stderr:\n{err_s}")
+    if out_s:
+        streams.append(f"stdout:\n{out_s}")
+    if not streams:
+        streams.append("(no stdout/stderr captured)")
+    ctx = _download_context_suffix(url, cookies_file)
+    return " | ".join(head_parts) + " || " + " || ".join(streams) + " || " + ctx
+
 
 def normalize_download_url(url: str) -> str:
     """
@@ -99,7 +176,7 @@ def _cookies_file_for_url(cookies_dir: str, url: str) -> str:
     else:
         return ""
 
-    path = os.path.join(cookies_dir, name)
+    path = os.path.abspath(os.path.expanduser(os.path.join(cookies_dir, name)))
     if os.path.isfile(path) and os.path.getsize(path) > 0:
         return path
     return ""
@@ -141,7 +218,9 @@ def _download_video_with_ytdlp(
     if ffmpeg_path:
         base_opts['ffmpeg_location'] = os.path.dirname(ffmpeg_path)
     if cookies_file and os.path.isfile(cookies_file):
-        base_opts['cookiefile'] = cookies_file
+        # yt-dlp Python API expects ``cookiefile`` (same as CLI ``--cookies``).
+        # Use an absolute path; relative paths sometimes fail to load in embedded use.
+        base_opts['cookiefile'] = os.path.abspath(os.path.expanduser(cookies_file))
 
     if sep_audio:
         ydl_opts = {
@@ -158,11 +237,16 @@ def _download_video_with_ytdlp(
         except Exception as e:
             if _valid_mp4():
                 return final_path, None
-            return None, str(e)
+            return None, _ytdlp_format_error(e, url, cookies_file)
         if os.path.exists(final_path):
             return final_path, None
-        return None, "yt-dlp completed without creating expected MP4 file (likely non-video content)."
+        return None, (
+            "yt-dlp completed without creating expected MP4 file (likely non-video content)."
+            + " | "
+            + _download_context_suffix(url, cookies_file)
+        )
 
+    merge_err: Optional[str] = None
     # Only attempt bestvideo+bestaudio merge when ffmpeg is available;
     # without it yt-dlp raises BrokenPipeError trying to pipe to ffmpeg.
     if ffmpeg_path:
@@ -176,9 +260,10 @@ def _download_video_with_ytdlp(
         try:
             with yt_dlp.YoutubeDL(merged_opts) as ydl:
                 ydl.download([url])
-        except Exception:
+        except Exception as e:
             if _valid_mp4():
                 return final_path, None
+            merge_err = _ytdlp_format_error(e, url, cookies_file)
         else:
             if _valid_mp4():
                 return final_path, None
@@ -197,12 +282,22 @@ def _download_video_with_ytdlp(
         cached = find_existing_downloaded_media(media_dir, save_name)
         if cached:
             return cached, None
-        return None, str(e)
+        err = _ytdlp_format_error(e, url, cookies_file)
+        if merge_err:
+            err = f"{err} || merge_attempt_failed_first: {merge_err}"
+        return None, err
 
     cached = find_existing_downloaded_media(media_dir, save_name)
     if cached:
         return cached, None
-    return None, "yt-dlp completed without creating expected media file (likely non-video content)."
+    tail = _download_context_suffix(url, cookies_file)
+    if merge_err:
+        tail = f"merge_attempt_failed_first: {merge_err} || {tail}"
+    return None, (
+        "yt-dlp completed without creating expected media file (likely non-video content)."
+        + " || "
+        + tail
+    )
 
 
 def _download_image_gallery_dl(
@@ -220,31 +315,61 @@ def _download_image_gallery_dl(
     base = [gallery_dl_path] if gallery_dl_path else [sys.executable, "-m", "gallery_dl"]
     cmd = [
         *base,
-        "-q",
         "--dest",
         output_dir,
         "--filename",
         save_name + ".{extension}",
     ]
     if cookies_file and os.path.isfile(cookies_file):
-        cmd += ["--cookies", cookies_file]
+        cmd += ["--cookies", os.path.abspath(os.path.expanduser(cookies_file))]
     cmd.append(url)
 
     try:
         logger.debug("Running: %s", " ".join(cmd))
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_GALLERY_DL_TIMEOUT_SEC,
+        )
         if result.returncode != 0:
-            stderr = result.stderr.strip()
-            return None, f"gallery-dl exit {result.returncode}: {stderr}" if stderr else f"gallery-dl exit {result.returncode}"
+            return None, _gallery_dl_format_failure(
+                exit_code=result.returncode,
+                stdout=result.stdout or "",
+                stderr=result.stderr or "",
+                url=url,
+                cookies_file=cookies_file,
+            )
 
         files = glob.glob(os.path.join(output_dir, "**", f"{save_name}*"), recursive=True)
         files = [f for f in files if os.path.isfile(f) and os.path.getsize(f) > 0]
-        return (files[0], None) if files else (None, "gallery-dl completed but no files found.")
+        if files:
+            return files[0], None
+        return None, _gallery_dl_format_failure(
+            stdout=result.stdout or "",
+            stderr=result.stderr or "",
+            url=url,
+            cookies_file=cookies_file,
+            other=(
+                "gallery-dl finished with exit 0 but no non-empty files matching "
+                f"{save_name!r} were found under {output_dir!r}"
+            ),
+        )
 
-    except subprocess.TimeoutExpired:
-        return None, "gallery-dl timed out after 120s"
+    except subprocess.TimeoutExpired as e:
+        return None, _gallery_dl_format_failure(
+            timed_out_after_sec=float(_GALLERY_DL_TIMEOUT_SEC),
+            stdout=getattr(e, "stdout", None) or "",
+            stderr=getattr(e, "stderr", None) or "",
+            url=url,
+            cookies_file=cookies_file,
+        )
     except Exception as e:
-        return None, f"gallery-dl error: {e}"
+        return None, _gallery_dl_format_failure(
+            other=f"{type(e).__name__}: {e}",
+            url=url,
+            cookies_file=cookies_file,
+        )
 
 
 def download_media(
@@ -265,6 +390,18 @@ def download_media(
         return cached, None
 
     cookies_file = _cookies_file_for_url(cookies_dir, url)
+    if cookies_file:
+        logger.info(
+            "Using Netscape cookies for yt-dlp and gallery-dl: %s", cookies_file
+        )
+    elif cookies_dir:
+        logger.info(
+            "No cookie file applied for this URL (host is not Facebook/Instagram, "
+            "or cookies_fb.txt / cookies_ig.txt is missing or empty under %s). "
+            "yt-dlp Instagram/Facebook errors that mention --cookies are generic "
+            "and also appear when cookies were passed but rejected or expired.",
+            cookies_dir,
+        )
     logger.info("Processing ID %s: Trying video download...", save_name)
 
     # 1. Try Video Download
