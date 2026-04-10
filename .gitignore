@@ -15,3 +15,4 @@ venv/
 htmlcov/
 uv.lock
 .idea/
+._*

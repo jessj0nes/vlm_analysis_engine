@@ -346,7 +346,7 @@ class PipelineContext:
 # Pipeline setup
 # ═════════════════════════════════════════════════════════════════════════════
 
-
+# TODO: This should be happening outside the module really. We want the user to define the pipeline details.
 def prepare_pipeline(spec: ProjectSpec) -> Optional[PipelineContext]:
     """Load config from *spec*, read input CSV, filter to pending rows, set up storage.
 
@@ -370,6 +370,7 @@ def prepare_pipeline(spec: ProjectSpec) -> Optional[PipelineContext]:
 
     # ── Read & validate input CSV ────────────────────────────────────────
     df = pd.read_csv(spec.input_csv)
+    df = df.drop_duplicates(subset=['post_url'], keep='first')
     missing = [c for c in spec.required_input_columns if c not in df.columns]
     if missing:
         raise SystemExit(
